@@ -1,12 +1,10 @@
 import csv
+import logging
 import os
 from datetime import datetime
 
-from dotenv import load_dotenv
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-
-load_dotenv()
 
 _START_URL = "https://www.e-kakushin.com/login/"
 # _STATE_FILE = os.path.join("tmp", "session_state.json")
@@ -16,6 +14,8 @@ _ids = os.getenv("IDS", "").split(",")
 _passwords = os.getenv("PASSWORDS", "").split(",")
 
 eq_title = "甲信越地域　震度６弱　関東地域　震度５弱　東海地域　震度５弱"
+
+logger = logging.getLogger(__name__)
 
 
 def _save_html(page: Page, label: str) -> str:
@@ -47,6 +47,12 @@ class EKakushinClient:
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
+        self.logger = logging.getLogger(__name__)
+
+    def _save_html_debug(self, label: str) -> None:
+        if self.logger.isEnabledFor(logging.DEBUG):
+            path = _save_html(self._page, label)
+            self.logger.debug(path)
 
     def __enter__(self) -> "EKakushinClient":
         self._playwright = sync_playwright().start()
@@ -80,7 +86,7 @@ class EKakushinClient:
         self._page.on("dialog", lambda dialog: dialog.accept())
 
         # if state_file and self._is_logged_in():
-        #     print(_save_html(self._page, "already_logged_in"))
+        #     self.logger.info(_save_html(self._page, "already_logged_in"))
         #     return
 
         try:
@@ -100,12 +106,12 @@ class EKakushinClient:
                 timeout=5_000
             )
         except PlaywrightTimeoutError:
-            print(_save_html(self._page, "login_timeout"))
+            self._save_html_debug("login_timeout")
             raise
 
         os.makedirs("tmp", exist_ok=True)
         # self._context.storage_state(path=_STATE_FILE)
-        print(_save_html(self._page, "after_login"))
+        self._save_html_debug("after_login")
 
     def click_secom_service(self) -> None:
         """セコム安否確認サービスをクリック"""
@@ -130,9 +136,9 @@ class EKakushinClient:
             # 切断ボタンがあればここで先に処理しておく。
             page.wait_for_load_state("domcontentloaded", timeout=10_000)
             self._disconnect_if_present()
-            print(_save_html(page, "after_click_secom_service"))
+            self._save_html_debug("after_click_secom_service")
         except PlaywrightTimeoutError:
-            print(_save_html(page, "secom_service_not_found"))
+            self._save_html_debug("secom_service_not_found")
             raise
 
     def _disconnect_if_present(self) -> None:
@@ -151,7 +157,7 @@ class EKakushinClient:
         disconnect_button.click()
         page.wait_for_load_state("networkidle", timeout=10_000)
         page.wait_for_timeout(1_000)
-        print(_save_html(page, "after_disconnect_click"))
+        self._save_html_debug("after_disconnect_click")
 
     def search_and_process_eq_data(self) -> None:
         """eq_titleで検索して安否状況集計ボタンを押し、対象者数データを取得してCSVに保存"""
@@ -163,7 +169,7 @@ class EKakushinClient:
             # eq_titleを含む災害名リンクを検索
             row = page.locator(f"a:has-text('{eq_title}')").first
             row.wait_for(state="visible", timeout=5_000)
-            print(_save_html(page, "after_find_eq_title"))
+            self._save_html_debug("after_find_eq_title")
 
             # その行から「安否状況集計」リンク/ボタンを探してクリック
             parent_row = row.locator("xpath=ancestor::tr")
@@ -173,7 +179,7 @@ class EKakushinClient:
             status_button.wait_for(state="visible", timeout=5_000)
             status_button.click()
             page.wait_for_load_state("domcontentloaded", timeout=10_000)
-            print(_save_html(page, "after_click_status_button"))
+            self._save_html_debug("after_click_status_button")
 
             # 「対象者数」カード内の人数リンクをクリック
             target_count_card = page.locator("div.mdl-common-block.small").filter(
@@ -182,7 +188,7 @@ class EKakushinClient:
             target_count_button = target_count_card.locator("div.status-value a").first
             target_count_button.wait_for(state="visible", timeout=5_000)
             target_count_button.click()
-            print(_save_html(page, "after_click_target_count"))
+            self._save_html_debug("after_click_target_count")
 
             # テーブルデータを取得
             page.wait_for_load_state("networkidle", timeout=10_000)
@@ -218,14 +224,14 @@ class EKakushinClient:
                 with open(csv_path, "w", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     writer.writerows(table_data)
-                print(f"CSV saved: {csv_path}")
+                self.logger.info("CSV saved: %s", csv_path)
             else:
-                print("No table data found")
+                self.logger.warning("No table data found")
 
-            print(_save_html(page, "after_extract_data"))
+            self._save_html_debug("after_extract_data")
 
         except PlaywrightTimeoutError:
-            print(_save_html(page, "search_and_process_timeout"))
+            self._save_html_debug("search_and_process_timeout")
             raise
 
     def logout(self) -> None:
@@ -260,13 +266,13 @@ class EKakushinClient:
 
                 logout_locator.wait_for(state="visible", timeout=5_000)
 
-            print(_save_html(page, "after_menu_open"))
+            self._save_html_debug("after_menu_open")
             logout_locator.click()
-            print(_save_html(page, "after_logout_click"))
+            self._save_html_debug("after_logout_click")
             page.locator("text=ログアウトしました").first.wait_for(timeout=10_000)
-            print(_save_html(page, "logout_success"))
+            self._save_html_debug("logout_success")
         except PlaywrightTimeoutError:
-            print(_save_html(page, "logout_timeout"))
+            self._save_html_debug("logout_timeout")
             raise
 
         # if os.path.exists(_STATE_FILE):

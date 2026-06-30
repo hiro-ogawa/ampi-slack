@@ -1,4 +1,14 @@
+import logging
+import os
 from time import sleep
+
+import coloredlogs
+from dotenv import load_dotenv
+
+load_dotenv()
+logger = logging.getLogger(__name__)
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+coloredlogs.install(level=log_level, logger=logging.getLogger())
 
 from e_kakushin_client import EKakushinClient
 
